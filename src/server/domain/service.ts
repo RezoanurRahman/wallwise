@@ -391,11 +391,6 @@ function requiredIsoDate(value: unknown, field: string): IsoDate {
     throw validationError(`${field} must be a real date in YYYY-MM-DD format.`, field);
   }
 
-  const year = Number.parseInt(value.slice(0, 4), 10);
-  if (year < 1000 || year > 2100) {
-    throw validationError(`${field} must use a year between 1000 and 2100.`, field);
-  }
-
   return value;
 }
 
@@ -447,6 +442,10 @@ function requiredNonNegativeInteger(value: unknown, field: string): number {
 function sqlLikePattern(search: string): string {
   const escaped = search.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
   return `%${escaped.toLowerCase()}%`;
+}
+
+function emailIdentity(value: string): string {
+  return value.normalize('NFKC').toUpperCase().toLowerCase();
 }
 
 function mapArtist(row: ArtistRow): Artist {
@@ -559,7 +558,7 @@ function sortValue<T extends string>(value: T | undefined, allowed: readonly T[]
     return fallback;
   }
   if (!(allowed as readonly string[]).includes(value)) {
-    throw validationError(`sort must be one of: .`, 'sort');
+    throw validationError(`sort must be one of: ${allowed.join(', ')}.`, 'sort');
   }
   return value;
 }
@@ -718,10 +717,19 @@ function mapWriteFailure(error: unknown): DomainError {
 
   if (isSqliteFailure(error)) {
     if (error.code.startsWith('SQLITE_CONSTRAINT')) {
-      if (error.message.includes('idx_artists_email_nocase')) {
+      if (
+        error.message.includes('idx_artists_email_nocase') ||
+        error.message.includes('artists.email')
+      ) {
         return validationError('email is already in use by another artist.', 'email');
       }
-      if (error.message.includes('idx_placements_exhibition')) {
+      if (
+        error.message.includes('idx_placements_exhibition') ||
+        (error.message.includes('placements.exhibition_id') &&
+          (error.message.includes('placements.artwork_id') ||
+            error.message.includes('placements.wall') ||
+            error.message.includes('placements.position')))
+      ) {
         return placementConflictError(
           'That artwork or wall position is already assigned in this exhibition.',
         );
@@ -980,13 +988,8 @@ export class WallwiseService {
     const id = randomUUID();
 
     const activity = this.transact(() => {
-      if (email !== null) {
-        const duplicate = this.db
-          .prepare('SELECT id FROM artists WHERE LOWER(email) = LOWER(?)')
-          .get(email) as { id: string } | undefined;
-        if (duplicate) {
-          throw validationError('email is already in use by another artist.', 'email');
-        }
+      if (email !== null && this.artistEmailInUse(email)) {
+        throw validationError('email is already in use by another artist.', 'email');
       }
 
       this.db
@@ -1028,13 +1031,8 @@ export class WallwiseService {
           ? current.status
           : enumValue(input.status, ARTIST_STATUSES, 'status');
 
-      if (email !== null) {
-        const duplicate = this.db
-          .prepare('SELECT id FROM artists WHERE LOWER(email) = LOWER(?) AND id <> ?')
-          .get(email, artistId) as { id: string } | undefined;
-        if (duplicate) {
-          throw validationError('email is already in use by another artist.', 'email');
-        }
+      if (email !== null && this.artistEmailInUse(email, artistId)) {
+        throw validationError('email is already in use by another artist.', 'email');
       }
 
       this.db
@@ -1075,6 +1073,14 @@ export class WallwiseService {
       throw notFoundError('Artist not found.', field);
     }
     return row;
+  }
+
+  private artistEmailInUse(email: string, excludeId = ''): boolean {
+    const rows = this.db
+      .prepare('SELECT id, email FROM artists WHERE email IS NOT NULL AND id <> ?')
+      .all(excludeId) as { id: string; email: string }[];
+    const identity = emailIdentity(email);
+    return rows.some((row) => emailIdentity(row.email) === identity);
   }
 
   listArtworks(query: ArtworkListQuery = {}): ArtworkListResponse {
@@ -2108,7 +2114,9 @@ export class WallwiseService {
         throw validationError('overdue must be true or false.', 'overdue');
       }
       const overdueSql = "(status <> 'done' AND due_date IS NOT NULL AND due_date < ?)";
-      conditions.push(query.overdue ? overdueSql : `NOT ${overdueSql}`);
+      conditions.push(
+        query.overdue ? overdueSql : "(status = 'done' OR due_date IS NULL OR due_date >= ?)",
+      );
       params.push(this.today());
     }
 

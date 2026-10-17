@@ -38,6 +38,7 @@ interface ValidationIssue {
 function requiredText(field: string, maxLength: number) {
   return z
     .string({ error: `${field} is required.` })
+    .trim()
     .min(1, `${field} is required.`)
     .max(maxLength, `${field} must be ${maxLength} characters or fewer.`);
 }
@@ -45,6 +46,7 @@ function requiredText(field: string, maxLength: number) {
 function optionalText(field: string, maxLength: number) {
   return z
     .string({ error: `${field} must be text.` })
+    .trim()
     .max(maxLength, `${field} must be ${maxLength} characters or fewer.`)
     .nullable()
     .optional();
@@ -71,6 +73,20 @@ function positiveIntegerQuery(field: string) {
         .int(`${field} must be a positive integer.`)
         .positive(`${field} must be a positive integer.`)
         .max(Number.MAX_SAFE_INTEGER, `${field} must be a positive integer.`),
+    );
+}
+
+function pageSizeQuery(field: string) {
+  return z
+    .string({ error: `${field} must be a non-negative integer.` })
+    .regex(/^\d+$/, `${field} must be a non-negative integer.`)
+    .transform((value) => Number.parseInt(value, 10))
+    .pipe(
+      z
+        .number()
+        .int(`${field} must be a non-negative integer.`)
+        .nonnegative(`${field} must be a non-negative integer.`)
+        .max(Number.MAX_SAFE_INTEGER, `${field} must be a non-negative integer.`),
     );
 }
 
@@ -202,7 +218,7 @@ export const ArtistListQuerySchema = z.strictObject({
   sort: enumSchema(['name', 'createdAt', 'updatedAt'] as const, 'sort').optional(),
   direction: sortDirection.optional(),
   page: positiveIntegerQuery('page').optional(),
-  pageSize: positiveIntegerQuery('pageSize').optional(),
+  pageSize: pageSizeQuery('pageSize').optional(),
 });
 
 export const ArtworkListQuerySchema = z.strictObject({
@@ -212,7 +228,7 @@ export const ArtworkListQuerySchema = z.strictObject({
   sort: enumSchema(['title', 'artist', 'createdAt', 'updatedAt'] as const, 'sort').optional(),
   direction: sortDirection.optional(),
   page: positiveIntegerQuery('page').optional(),
-  pageSize: positiveIntegerQuery('pageSize').optional(),
+  pageSize: pageSizeQuery('pageSize').optional(),
 });
 
 export const ExhibitionListQuerySchema = z.strictObject({
@@ -224,7 +240,7 @@ export const ExhibitionListQuerySchema = z.strictObject({
   sort: enumSchema(['startDate', 'endDate', 'title', 'updatedAt'] as const, 'sort').optional(),
   direction: sortDirection.optional(),
   page: positiveIntegerQuery('page').optional(),
-  pageSize: positiveIntegerQuery('pageSize').optional(),
+  pageSize: pageSizeQuery('pageSize').optional(),
 });
 
 export const TaskListQuerySchema = z.strictObject({
@@ -235,7 +251,7 @@ export const TaskListQuerySchema = z.strictObject({
   sort: enumSchema(['dueDate', 'createdAt', 'updatedAt'] as const, 'sort').optional(),
   direction: sortDirection.optional(),
   page: positiveIntegerQuery('page').optional(),
-  pageSize: positiveIntegerQuery('pageSize').optional(),
+  pageSize: pageSizeQuery('pageSize').optional(),
 });
 
 export const ActivityListQuerySchema = z.strictObject({
@@ -243,7 +259,7 @@ export const ActivityListQuerySchema = z.strictObject({
   entityId: z.string({ error: 'entityId must be text.' }).optional(),
   limit: positiveIntegerQuery('limit').optional(),
   page: positiveIntegerQuery('page').optional(),
-  pageSize: positiveIntegerQuery('pageSize').optional(),
+  pageSize: pageSizeQuery('pageSize').optional(),
 });
 
 function issueField(issue: z.core.$ZodIssue): string | undefined {
