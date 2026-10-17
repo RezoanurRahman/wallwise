@@ -1,0 +1,32 @@
+# Dependencies and build products
+node_modules/
+dist/
+coverage/
+.vite/
+*.tsbuildinfo
+
+# Local data and test artifacts
+data/
+.tmp/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+test-results/
+playwright-report/
+blob-report/
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Editor and operating-system files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Logs and caches
+*.log
+.eslintcache
+npm-debug.log*
