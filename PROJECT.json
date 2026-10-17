@@ -1,9 +1,0 @@
-{
-  "name": "Wallwise",
-  "slug": "wallwise",
-  "summary": "Wallwise is a durable exhibition planning desk for independent galleries. It connects artist and artwork records, conflict-aware exhibition hangs, auditable lifecycle workflows, installation tasks, and portfolio-ready analytics in one calm workspace.",
-  "frontend": "React 19 + Vite",
-  "backend": "Elysia 1 + @elysiajs/node",
-  "storage": "sqlite",
-  "language": "typescript"
-}
