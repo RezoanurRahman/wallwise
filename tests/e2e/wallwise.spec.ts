@@ -1,0 +1,432 @@
+import { expect, test } from '@playwright/test';
+import type { Dialog, Locator, Page, TestInfo } from '@playwright/test';
+
+const NETWORK_TIMEOUT = 15_000;
+
+function attemptSuffix(testInfo: TestInfo): string {
+  return testInfo.retry === 0 ? '2026' : `2026 r${testInfo.retry}`;
+}
+
+function journeyFixture(testInfo: TestInfo) {
+  const suffix = attemptSuffix(testInfo);
+  const emailSuffix = testInfo.retry === 0 ? '2026' : `2026-r${testInfo.retry}`;
+
+  return {
+    artist: {
+      bio: 'E2E browser journey artist working with weather, graphite, and architectural light.',
+      email: `e2e.artist.${emailSuffix}@wallwise.test`,
+      name: `E2E Artist ${suffix}`,
+    },
+    artwork: {
+      heightCm: '64',
+      medium: 'Acrylic and graphite on panel',
+      title: `E2E Weather Study ${suffix}`,
+      widthCm: '84',
+      year: '2026',
+    },
+    exhibition: {
+      endDate: '2028-03-20',
+      installEnd: '2028-02-05',
+      installStart: '2028-02-01',
+      space: `E2E Annex ${suffix}`,
+      startDate: '2028-02-06',
+      title: `E2E Lantern Register ${suffix}`,
+    },
+    task: {
+      dueDate: '2028-02-03',
+      title: `E2E install lantern light ${suffix}`,
+    },
+  };
+}
+
+function conflictFixture(testInfo: TestInfo) {
+  const suffix = attemptSuffix(testInfo);
+  const space = `E2E Conflict Hall ${suffix}`;
+
+  return {
+    anchor: {
+      endDate: '2029-05-20',
+      installEnd: '2029-04-05',
+      installStart: '2029-04-01',
+      space,
+      startDate: '2029-04-06',
+      title: `E2E Schedule Anchor ${suffix}`,
+    },
+    conflict: {
+      endDate: '2029-05-25',
+      installEnd: '2029-04-08',
+      installStart: '2029-04-03',
+      space,
+      startDate: '2029-04-09',
+      title: `E2E Conflicting Echo ${suffix}`,
+    },
+  };
+}
+
+interface ExhibitionDraft {
+  endDate: string;
+  installEnd: string;
+  installStart: string;
+  space: string;
+  startDate: string;
+  title: string;
+}
+
+test.describe.configure({ mode: 'serial' });
+
+function collectPageErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => {
+    errors.push(error.message);
+  });
+  return errors;
+}
+
+async function navigateFromPrimary(page: Page, name: string): Promise<void> {
+  await page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name }).click();
+}
+
+async function openExhibitionForm(page: Page): Promise<Locator> {
+  await page.getByRole('button', { name: 'New exhibition' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New exhibition' });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
+async function fillExhibitionForm(dialog: Locator, draft: ExhibitionDraft): Promise<void> {
+  await dialog.getByLabel('Title', { exact: true }).fill(draft.title);
+  await dialog.getByLabel('Space', { exact: true }).fill(draft.space);
+  await dialog.getByLabel('Installation start').fill(draft.installStart);
+  await dialog.getByLabel('Installation end').fill(draft.installEnd);
+  await dialog.getByLabel('Public opening').fill(draft.startDate);
+  await dialog.getByLabel('Public closing').fill(draft.endDate);
+}
+
+async function createExhibitionFromList(page: Page, draft: ExhibitionDraft): Promise<void> {
+  const dialog = await openExhibitionForm(page);
+  await fillExhibitionForm(dialog, draft);
+  await dialog.getByRole('button', { name: 'Create exhibition' }).click();
+  await expect(dialog).toBeHidden({ timeout: NETWORK_TIMEOUT });
+  await expect(page.getByRole('heading', { level: 1, name: draft.title })).toBeVisible({
+    timeout: NETWORK_TIMEOUT,
+  });
+}
+
+test('director can add an artist, artwork, exhibition, hang it, add a task, and transition lifecycle', async ({
+  page,
+}, testInfo) => {
+  const {
+    artist: createdArtist,
+    artwork: createdArtwork,
+    exhibition: createdExhibition,
+    task: createdTask,
+  } = journeyFixture(testInfo);
+  const pageErrors = collectPageErrors(page);
+
+  await page.goto('/');
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'A clearer view of the next hang' }),
+  ).toBeVisible({ timeout: NETWORK_TIMEOUT });
+  await expect(page.getByText('Durable desk record', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Artists, hangs, and plans persist in SQLite\./)).toBeVisible();
+
+  await navigateFromPrimary(page, 'Artists');
+  await expect(page.getByRole('heading', { level: 1, name: 'Artists & practices' })).toBeVisible();
+  await page.getByRole('button', { name: 'Add artist' }).click();
+
+  const artistDialog = page.getByRole('dialog', { name: 'Add artist' });
+  await expect(artistDialog).toBeVisible();
+  await artistDialog.getByLabel('Name', { exact: true }).fill(createdArtist.name);
+  await artistDialog.getByLabel('Email', { exact: true }).fill(createdArtist.email);
+  await artistDialog.getByLabel('Bio', { exact: true }).fill(createdArtist.bio);
+  await artistDialog.getByRole('button', { name: 'Save artist' }).click();
+
+  await expect(artistDialog).toBeHidden({ timeout: NETWORK_TIMEOUT });
+  await expect(page.getByText('Roster updated', { exact: true })).toBeVisible();
+  await expect(page.getByText('Artist created.', { exact: true })).toBeVisible();
+  const artistRow = page.getByRole('row').filter({ hasText: createdArtist.name });
+  await expect(artistRow).toBeVisible({ timeout: NETWORK_TIMEOUT });
+  await expect(artistRow).toContainText(createdArtist.email);
+
+  await navigateFromPrimary(page, 'Artworks');
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'The working collection' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Add artwork' }).click();
+
+  const artworkDialog = page.getByRole('dialog', { name: 'Add artwork' });
+  await expect(artworkDialog).toBeVisible();
+  await artworkDialog
+    .getByLabel('Artist', { exact: true })
+    .selectOption({ label: createdArtist.name });
+  await artworkDialog.getByLabel('Title', { exact: true }).fill(createdArtwork.title);
+  await artworkDialog.getByLabel('Medium', { exact: true }).fill(createdArtwork.medium);
+  await artworkDialog.getByLabel('Year', { exact: true }).fill(createdArtwork.year);
+  await artworkDialog.getByLabel('Width (cm)', { exact: true }).fill(createdArtwork.widthCm);
+  await artworkDialog.getByLabel('Height (cm)', { exact: true }).fill(createdArtwork.heightCm);
+  await artworkDialog.getByRole('button', { name: 'Save artwork' }).click();
+
+  await expect(artworkDialog).toBeHidden({ timeout: NETWORK_TIMEOUT });
+  await expect(page.getByText('Collection updated', { exact: true })).toBeVisible();
+  await expect(page.getByText('Artwork created.', { exact: true })).toBeVisible();
+  const artworkRow = page.getByRole('row').filter({ hasText: createdArtwork.title });
+  await expect(artworkRow).toBeVisible({ timeout: NETWORK_TIMEOUT });
+  await expect(artworkRow).toContainText(createdArtist.name);
+  await expect(artworkRow).toContainText(createdArtwork.medium);
+
+  await navigateFromPrimary(page, 'Exhibitions');
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Exhibitions on the horizon' }),
+  ).toBeVisible();
+  await createExhibitionFromList(page, createdExhibition);
+  await expect(page.getByText('Draft', { exact: true }).first()).toBeVisible();
+
+  const hangPlan = page.getByRole('region', { name: 'Hang plan', exact: true });
+  await expect(hangPlan).toBeVisible();
+  await hangPlan
+    .getByLabel('Artwork', { exact: true })
+    .selectOption({ label: `${createdArtwork.title} — ${createdArtist.name} (Available)` });
+  await hangPlan.getByLabel('Wall', { exact: true }).fill('Wall E2E');
+  await hangPlan.getByLabel('Position', { exact: true }).fill('1');
+  await hangPlan.getByRole('button', { name: 'Add placement' }).click();
+  await expect(hangPlan.getByText('Hang updated', { exact: true })).toBeVisible({
+    timeout: NETWORK_TIMEOUT,
+  });
+  await expect(hangPlan.getByRole('row').filter({ hasText: createdArtwork.title })).toContainText(
+    'Wall E2E',
+  );
+
+  const taskPanel = page.getByRole('region', { name: 'Installation tasks', exact: true });
+  await expect(taskPanel).toBeVisible();
+  await taskPanel.getByLabel('Task title', { exact: true }).fill(createdTask.title);
+  await taskPanel.getByLabel('Category', { exact: true }).selectOption({ label: 'Lighting' });
+  await taskPanel.getByLabel('Due date', { exact: true }).fill(createdTask.dueDate);
+  await taskPanel.getByRole('button', { name: 'Add task' }).click();
+  await expect(taskPanel.getByText('Task list updated', { exact: true })).toBeVisible({
+    timeout: NETWORK_TIMEOUT,
+  });
+  await expect(taskPanel.getByRole('heading', { level: 3, name: createdTask.title })).toBeVisible();
+
+  const lifecycle = page.getByRole('region', { name: 'Exhibition lifecycle', exact: true });
+  await lifecycle
+    .getByLabel('Transition note', { exact: true })
+    .fill('E2E hang and task checklist reviewed.');
+
+  const acceptLifecyclePrompt = (dialog: Dialog): void => {
+    void dialog.accept();
+  };
+  page.once('dialog', acceptLifecyclePrompt);
+  await lifecycle.getByRole('button', { name: 'Plan exhibition' }).click();
+  await expect(lifecycle.getByText('Lifecycle updated', { exact: true })).toBeVisible({
+    timeout: NETWORK_TIMEOUT,
+  });
+  page.off('dialog', acceptLifecyclePrompt);
+
+  await expect(lifecycle.getByText('Planned', { exact: true })).toBeVisible();
+  await expect(lifecycle.getByRole('button', { name: 'Begin installation' })).toBeVisible();
+  const readiness = page.getByRole('region', { name: 'Opening readiness', exact: true });
+  await expect(readiness).toBeVisible();
+  await expect(readiness).toContainText('Exhibition readiness');
+  await expect(hangPlan).toContainText(createdArtwork.title);
+  await expect(taskPanel).toContainText(createdTask.title);
+  const activity = page.getByRole('region', { name: 'Activity', exact: true });
+  await expect(activity).toContainText('Status changed from draft to planned.');
+  await expect(activity).toContainText('E2E hang and task checklist reviewed.');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+
+  await navigateFromPrimary(page, 'Dashboard');
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'A clearer view of the next hang' }),
+  ).toBeVisible();
+  await expect(page.getByText(createdExhibition.title, { exact: true }).first()).toBeVisible({
+    timeout: NETWORK_TIMEOUT,
+  });
+  expect(pageErrors).toEqual([]);
+});
+
+test('conflicting schedule is explained and values remain', async ({ page }, testInfo) => {
+  const { anchor: anchorExhibition, conflict: conflictingExhibition } = conflictFixture(testInfo);
+
+  const pageErrors = collectPageErrors(page);
+
+  await page.goto('/exhibitions');
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Exhibitions on the horizon' }),
+  ).toBeVisible({ timeout: NETWORK_TIMEOUT });
+
+  await createExhibitionFromList(page, anchorExhibition);
+  await page.getByRole('link', { name: 'Back to exhibitions' }).click();
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Exhibitions on the horizon' }),
+  ).toBeVisible();
+  await expect(page.getByRole('row').filter({ hasText: anchorExhibition.title })).toBeVisible({
+    timeout: NETWORK_TIMEOUT,
+  });
+
+  const conflictDialog = await openExhibitionForm(page);
+  await fillExhibitionForm(conflictDialog, conflictingExhibition);
+  await conflictDialog.getByRole('button', { name: 'Create exhibition' }).click();
+
+  const conflictAlert = conflictDialog.getByRole('alert');
+  await expect(conflictAlert).toContainText(/conflicts with another show/i, {
+    timeout: NETWORK_TIMEOUT,
+  });
+  await expect(conflictDialog.getByText('Related exhibition conflicts')).toBeVisible();
+  await expect(conflictDialog).toContainText(anchorExhibition.title);
+  await expect(conflictDialog.getByLabel('Title', { exact: true })).toHaveValue(
+    conflictingExhibition.title,
+  );
+  await expect(conflictDialog.getByLabel('Space', { exact: true })).toHaveValue(
+    conflictingExhibition.space,
+  );
+  await expect(conflictDialog.getByLabel('Public opening')).toHaveValue(
+    conflictingExhibition.startDate,
+  );
+  await expect(conflictDialog.getByRole('button', { name: 'Create exhibition' })).toBeEnabled();
+
+  await conflictDialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(conflictDialog).toBeHidden();
+  await expect(page.getByRole('row').filter({ hasText: conflictingExhibition.title })).toHaveCount(
+    0,
+  );
+
+  const blankDialog = await openExhibitionForm(page);
+  await blankDialog.getByRole('button', { name: 'Create exhibition' }).click();
+  const blankTitle = blankDialog.getByLabel('Title', { exact: true });
+  await expect(blankTitle).toHaveAttribute('aria-invalid', 'true');
+  await expect(blankTitle).toBeFocused();
+  await expect(blankDialog.getByText('Title is required.', { exact: true })).toBeVisible();
+  await expect(blankDialog.getByRole('alert')).toContainText('Please check the form.');
+  await blankDialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(blankDialog).toBeHidden();
+
+  await expect(page.getByRole('row').filter({ hasText: anchorExhibition.title })).toBeVisible();
+  expect(pageErrors).toEqual([]);
+});
+
+test('desk supports mobile navigation, detail task status, export, and not-found', async ({
+  page,
+}) => {
+  const pageErrors = collectPageErrors(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'A clearer view of the next hang' }),
+  ).toBeVisible({ timeout: NETWORK_TIMEOUT });
+
+  const primaryNavigation = page.getByRole('navigation', { name: 'Primary' });
+  const menuButton = page.getByRole('button', { name: 'Menu' });
+  await expect(menuButton).toBeVisible();
+  await menuButton.click();
+  await expect(page.getByRole('button', { name: 'Close menu' })).toBeVisible();
+  await expect(primaryNavigation).toBeVisible();
+  await expect(primaryNavigation.getByRole('link', { name: 'Dashboard' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Menu' })).toBeFocused();
+  await expect(primaryNavigation).toBeHidden();
+
+  await page.getByRole('button', { name: 'Menu' }).click();
+  await primaryNavigation.getByRole('link', { name: 'Exhibitions' }).click();
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Exhibitions on the horizon' }),
+  ).toBeVisible({ timeout: NETWORK_TIMEOUT });
+  await page.getByRole('button', { name: 'Menu' }).click();
+  await expect(primaryNavigation.getByRole('link', { name: 'Exhibitions' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await page.keyboard.press('Escape');
+
+  const seededRow = page.getByRole('row').filter({ hasText: 'STILL / MOVING' });
+  await expect(seededRow).toBeVisible({ timeout: NETWORK_TIMEOUT });
+  await seededRow.getByRole('link', { name: 'Open exhibition' }).click();
+  await expect(page).toHaveURL(/\/exhibitions\/exh-still-moving$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'STILL / MOVING' })).toBeVisible({
+    timeout: NETWORK_TIMEOUT,
+  });
+
+  for (const regionName of [
+    'Exhibition record',
+    'Opening readiness',
+    'Hang plan',
+    'Installation tasks',
+    'Exhibition lifecycle',
+    'Activity',
+  ]) {
+    await expect(page.getByRole('region', { name: regionName, exact: true })).toBeVisible();
+  }
+
+  const overflow = await page.evaluate(() => ({
+    bodyWidth: document.body.scrollWidth,
+    documentWidth: document.documentElement.scrollWidth,
+    viewportWidth: document.documentElement.clientWidth,
+  }));
+  expect(overflow.documentWidth).toBeLessThanOrEqual(overflow.viewportWidth + 1);
+  expect(overflow.bodyWidth).toBeLessThanOrEqual(overflow.viewportWidth + 1);
+
+  const taskCard = page.getByRole('listitem').filter({
+    has: page.getByRole('heading', { level: 3, name: 'Focus track lights' }),
+  });
+  await expect(taskCard).toHaveCount(1);
+  const taskStatus = taskCard.getByLabel('Status', { exact: true });
+  const currentStatus = await taskStatus.inputValue();
+  const nextStatus = currentStatus === 'done' ? 'in_progress' : 'done';
+  const nextStatusLabel = nextStatus === 'done' ? 'Done' : 'In progress';
+  await taskStatus.selectOption({ label: nextStatusLabel });
+  await expect(taskStatus).toHaveValue(nextStatus, { timeout: NETWORK_TIMEOUT });
+  await expect(taskCard.getByText('Task status updated.', { exact: true })).toBeVisible({
+    timeout: NETWORK_TIMEOUT,
+  });
+  await expect(page.getByRole('region', { name: 'Activity', exact: true })).toContainText(
+    `Status changed from ${currentStatus} to ${nextStatus} for Focus track lights.`,
+  );
+
+  await page.getByRole('link', { name: 'Back to exhibitions' }).click();
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Exhibitions on the horizon' }),
+  ).toBeVisible();
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export CSV' }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('wallwise-exhibitions.csv');
+  const exportNotice = page.getByRole('status').filter({ hasText: 'CSV ready' });
+  await expect(exportNotice).toBeVisible({ timeout: NETWORK_TIMEOUT });
+  await expect(exportNotice).toContainText(
+    'Exhibition CSV downloaded as wallwise-exhibitions.csv.',
+  );
+
+  await page.goto('/exhibitions/not-a-real-id');
+  await expect(
+    page.getByRole('heading', {
+      level: 1,
+      name: 'This exhibition is not on the programme',
+    }),
+  ).toBeVisible({ timeout: NETWORK_TIMEOUT });
+  await expect(page.getByText('Exhibition not found', { exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Back to exhibitions' }).first()).toBeVisible();
+
+  await page.evaluate(() => {
+    (window as Window & { wallwiseE2eMarker?: string }).wallwiseE2eMarker = 'same-document';
+  });
+  await page.getByRole('button', { name: 'Menu' }).click();
+  await expect(primaryNavigation.getByRole('link', { name: 'Exhibitions' })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await primaryNavigation.getByRole('link', { name: 'Dashboard' }).click();
+  await expect(page).toHaveURL(/127\.0\.0\.1:4173\/$/);
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'A clearer view of the next hang' }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => (window as Window & { wallwiseE2eMarker?: string }).wallwiseE2eMarker,
+    ),
+  ).toBe('same-document');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(pageErrors).toEqual([]);
+});
