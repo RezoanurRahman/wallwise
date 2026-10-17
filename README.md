@@ -119,6 +119,7 @@ and the installed production dependencies together. Use Node 20.19+; Vite 7 and 
 | `npm run typecheck`        | Strict browser/shared and server TypeScript checks.                                 |
 | `npm test`                 | Vitest unit and component tests in jsdom.                                           |
 | `npm run test:integration` | Vitest integration tests against real SQLite at `.tmp/wallwise-integration.sqlite`. |
+| `npm start`                | Serve the build; CI smoke-checks `GET http://127.0.0.1:3000/api/health`.            |
 | `npm run test:e2e`         | Build, then run Playwright Chromium against `.tmp/wallwise-e2e.sqlite`.             |
 
 Unit tests are discovered in `src/**/*.test.*`, `src/**/*.spec.*`, `tests/unit`, and `tests/components`.
@@ -187,8 +188,11 @@ import them.
 
 `.github/workflows/ci.yml` runs on pushes and pull requests with Node 20. It installs from the lockfile,
 installs Playwright Chromium, and runs all gates in order: lint, format check, typecheck, unit tests,
-integration tests, production build, and browser tests. CI uses the same npm scripts as local development
-and sets deterministic `.tmp/` database paths. No repository secrets or external services are needed.
+integration tests, production build, production smoke check, and browser tests. The smoke step starts
+`npm start`, polls `GET http://127.0.0.1:3000/api/health`, prints the server log if readiness fails, and
+stops the production server before Playwright starts its own. CI uses the same npm scripts as local
+development and sets deterministic `.tmp/` database paths. No repository secrets or external services are
+needed.
 
 ## License
 
